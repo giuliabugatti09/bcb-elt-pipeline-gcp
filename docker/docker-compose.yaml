@@ -1,5 +1,3 @@
-version: '3.8'
-
 x-airflow-common: &airflow-common
   build:
     context: ..
@@ -11,8 +9,8 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__FERNET_KEY: ''
     AIRFLOW__WEBSERVER__EXPOSE_CONFIG: 'true'
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
-    # Variáveis de ambiente do NOSSO projeto (ex: paths, futuramente credenciais GCP)
-    PYTHONPATH: /opt/airflow/src
+    # Variaveis de ambiente do NOSSO projeto (paths, futuramente credenciais GCP)
+    PYTHONPATH: /opt/airflow
   volumes:
     - ../dags:/opt/airflow/dags
     - ../src:/opt/airflow/src
