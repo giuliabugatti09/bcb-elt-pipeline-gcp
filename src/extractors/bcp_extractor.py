@@ -11,7 +11,7 @@ Princípios aplicados aqui:
 """
 import json
 import time
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -140,7 +140,15 @@ def extract_series(
     codigo_serie = SERIES_BCB[series_name]
 
     if ultimos_n is not None:
-        # Modo incremental: últimos N valores
+        # Modo incremental: últimos N valores.
+        # Limite documentado pela própria API do BCB: máximo de 20.
+        if ultimos_n > 20:
+            raise ValueError(
+                f"ultimos_n={ultimos_n} excede o limite de 20 imposto pela "
+                f"API do BCB para o endpoint /dados/ultimos/{{N}}. "
+                f"Use no máximo 20, ou use data_inicial/data_final para "
+                f"períodos maiores."
+            )
         url = BASE_URL_ULTIMOS.format(codigo=codigo_serie, n=ultimos_n)
         params = {"formato": "json"}
 
@@ -186,35 +194,82 @@ def _validar_intervalo_datas(data_inicial: str, data_final: str) -> None:
         )
 
 
+def _gerar_chunks_datas(
+    data_inicial: date, data_final: date, max_anos: int = 10
+) -> list[tuple[date, date]]:
+    """
+    Fatia um intervalo de datas em blocos que respeitam o limite máximo
+    imposto pela API do BCB (10 anos por chamada).
+
+    Exemplo: pedir 25 anos de histórico gera 3 chunks de ~8-10 anos cada,
+    cada um extraído com uma chamada de API separada.
+
+    Returns:
+        Lista de tuplas (inicio_chunk, fim_chunk)
+    """
+    chunks = []
+    max_dias = max_anos * 365
+    inicio_atual = data_inicial
+
+    while inicio_atual < data_final:
+        fim_chunk = min(inicio_atual + timedelta(days=max_dias), data_final)
+        chunks.append((inicio_atual, fim_chunk))
+        inicio_atual = fim_chunk + timedelta(days=1)
+
+    return chunks
+
+
+
 def save_raw_json(
     series_name: str,
     data: list[dict],
+    mode: str = "incremental",
     execution_date: Optional[date] = None,
+    file_suffix: Optional[str] = None,
 ) -> Path:
     """
-    Salva os dados brutos em JSON, particionados por série e data de execução.
+    Salva os dados brutos em JSON, particionados por série, modo (incremental
+    vs backfill) e data.
 
-    Estrutura resultante (idempotente — reprocessar o mesmo dia sobrescreve):
-        data/raw/dolar_ptax_venda/dolar_ptax_venda_2026-09-15.json
+    Por que separar incremental de backfill fisicamente?
+    São fluxos com propósitos e frequências diferentes — o incremental
+    roda todo dia e gera muitos arquivos pequenos, o backfill roda
+    raramente e gera poucos arquivos grandes. Misturar os dois na mesma
+    pasta dificulta saber, só olhando os arquivos, qual foi o processo
+    que gerou cada um.
+
+    Estrutura resultante:
+        data/raw/{series}/incremental/{series}_{data_execucao}.json
+        data/raw/{series}/backfill/{series}_backfill_{sufixo}.json
 
     Args:
         series_name: nome da série (usado como subpasta)
         data: dados retornados por extract_series()
-        execution_date: data de execução. Se None, usa hoje.
+        mode: "incremental" ou "backfill"
+        execution_date: data de execução (usado apenas no modo incremental)
+        file_suffix: sufixo customizado do arquivo (usado no modo backfill,
+            ex: "2016-09-15_2026-09-15")
 
     Returns:
         Path do arquivo salvo
     """
-    if execution_date is None:
-        execution_date = datetime.now().date()
+    if mode not in ("incremental", "backfill"):
+        raise ValueError("mode deve ser 'incremental' ou 'backfill'.")
 
-    series_dir = RAW_DATA_DIR / series_name
+    series_dir = RAW_DATA_DIR / series_name / mode
     series_dir.mkdir(parents=True, exist_ok=True)
 
-    file_path = series_dir / f"{series_name}_{execution_date.isoformat()}.json"
+    if mode == "incremental":
+        if execution_date is None:
+            execution_date = datetime.now().date()
+        file_path = series_dir / f"{series_name}_{execution_date.isoformat()}.json"
+    else:  # backfill
+        suffix = file_suffix or datetime.now().strftime("%Y%m%d_%H%M%S")
+        file_path = series_dir / f"{series_name}_backfill_{suffix}.json"
 
     payload = {
         "series_name": series_name,
+        "mode": mode,
         "extraction_timestamp": datetime.now().isoformat(),
         "record_count": len(data),
         "data": data,
@@ -229,25 +284,85 @@ def save_raw_json(
 
 def run_extraction(
     series_name: str,
-    data_inicial: Optional[str] = None,
-    data_final: Optional[str] = None,
-    ultimos_n: Optional[int] = None,
+    ultimos_n: int = 20,
 ) -> Path:
     """
-    Função de entrada principal: extrai e salva uma série.
-    É essa função que o Airflow vai chamar na DAG (Dia 5/6).
+    Função de entrada para carga INCREMENTAL: extrai e salva os últimos
+    N valores de uma série. É essa função que o Airflow vai chamar
+    diariamente na DAG (Dia 5/6).
     """
-    logger.info(f"Iniciando extração da série: {series_name}")
-    dados = extract_series(series_name, data_inicial, data_final, ultimos_n)
-    file_path = save_raw_json(series_name, dados)
-    logger.info(f"Extração concluída: {series_name}")
+    logger.info(f"[incremental] Iniciando extração da série: {series_name}")
+    dados = extract_series(series_name, ultimos_n=ultimos_n)
+    file_path = save_raw_json(series_name, dados, mode="incremental")
+    logger.info(f"[incremental] Extração concluída: {series_name}")
+    return file_path
+
+
+def run_backfill(
+    series_name: str,
+    anos: int = 10,
+    data_final: Optional[date] = None,
+) -> Path:
+    """
+    Função de entrada para carga BACKFILL: extrai o histórico completo
+    de uma série, fatiando automaticamente em blocos que respeitam o
+    limite de 10 anos por chamada da API do BCB.
+
+    Diferente da carga incremental (que roda todo dia), o backfill é
+    executado manualmente — tipicamente uma vez, na configuração inicial
+    do pipeline, ou quando precisamos reprocessar um histórico grande.
+
+    Args:
+        series_name: chave em SERIES_BCB
+        anos: quantos anos de histórico buscar a partir de data_final
+        data_final: data final do backfill. Se None, usa hoje.
+
+    Returns:
+        Path do arquivo consolidado salvo em data/raw/{series}/backfill/
+    """
+    if data_final is None:
+        data_final = datetime.now().date()
+    data_inicial = data_final - timedelta(days=anos * 365)
+
+    chunks = _gerar_chunks_datas(data_inicial, data_final, max_anos=10)
+    logger.info(
+        f"[backfill] Série '{series_name}': período de {data_inicial} a "
+        f"{data_final} dividido em {len(chunks)} chunk(s)."
+    )
+
+    dados_completos: list[dict] = []
+    for i, (inicio_chunk, fim_chunk) in enumerate(chunks, start=1):
+        logger.info(
+            f"[backfill] Chunk {i}/{len(chunks)}: "
+            f"{inicio_chunk.strftime('%d/%m/%Y')} a {fim_chunk.strftime('%d/%m/%Y')}"
+        )
+        dados_chunk = extract_series(
+            series_name,
+            data_inicial=inicio_chunk.strftime("%d/%m/%Y"),
+            data_final=fim_chunk.strftime("%d/%m/%Y"),
+        )
+        dados_completos.extend(dados_chunk)
+
+    suffix = f"{data_inicial.isoformat()}_{data_final.isoformat()}"
+    file_path = save_raw_json(
+        series_name, dados_completos, mode="backfill", file_suffix=suffix
+    )
+    logger.info(
+        f"[backfill] Concluído: {series_name} — "
+        f"{len(dados_completos)} registros no total."
+    )
     return file_path
 
 
 if __name__ == "__main__":
     # Execução manual para teste local.
-    # Usamos o modo incremental (últimos 30 valores) por padrão — é o
-    # modo que a DAG do Airflow vai usar no dia a dia. O backfill
-    # completo do histórico será feito separadamente no Dia 4.
+    #
+    # Modo 1 — Carga incremental (o que a DAG vai rodar diariamente):
     for series in SERIES_BCB:
         run_extraction(series, ultimos_n=20)
+
+    # Modo 2 — Backfill (rode manualmente, uma vez, para popular o
+    # histórico). Descomente a linha abaixo quando quiser executá-lo:
+    #
+    # for series in SERIES_BCB:
+    #     run_backfill(series, anos=10)
