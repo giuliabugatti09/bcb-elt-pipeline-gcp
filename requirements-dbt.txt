@@ -1,0 +1,15 @@
+# Dependências do ambiente dbt, isoladas em .venv-dbt/ (Python 3.12).
+#
+# Por quê um venv separado? Na época da criação deste projeto, o
+# dbt-postgres (mais especificamente dbt-core) ainda não tinha suporte
+# oficial ao Python 3.14, usado no restante do projeto (extração/carga).
+# Suporte a 3.14 só chegou no dbt-core 1.12+, mas o adapter dbt-postgres
+# ainda não havia sido publicado nessa versão no momento em que este
+# projeto foi construído.
+#
+# Setup:
+#   py -3.12 -m venv .venv-dbt
+#   .venv-dbt\Scripts\Activate.ps1
+#   pip install -r requirements-dbt.txt
+
+dbt-postgres>=1.11,<1.12

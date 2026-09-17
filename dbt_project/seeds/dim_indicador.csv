@@ -1,0 +1,4 @@
+series_name,nome_indicador,unidade,categoria,descricao
+dolar_ptax_venda,Dólar PTAX (venda),BRL,Câmbio,Taxa de câmbio de venda do dólar americano apurada pelo Banco Central (PTAX)
+selic_diaria,Taxa Selic,% ao dia,Juros,"Taxa básica de juros da economia brasileira, meta definida pelo Copom"
+ipca_mensal,IPCA,% ao mês,Inflação,"Índice Nacional de Preços ao Consumidor Amplo, medidor oficial de inflação do Brasil"

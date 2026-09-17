@@ -1,0 +1,44 @@
+version: 2
+
+models:
+  - name: dim_indicador
+    description: Dimensão com metadados descritivos de cada indicador do BCB.
+    columns:
+      - name: series_name
+        description: Chave natural do indicador, usada como chave de junção com o fato
+        tests:
+          - unique
+          - not_null
+
+  - name: dim_data
+    description: Dimensão de calendário, uma linha por dia.
+    columns:
+      - name: data
+        description: Data (chave da dimensão)
+        tests:
+          - unique
+          - not_null
+
+  - name: fct_valores_bcb
+    description: Fato — um valor por indicador por data.
+    columns:
+      - name: indicador_id
+        description: Chave estrangeira conceitual para dim_indicador.series_name
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_indicador')
+              field: series_name
+
+      - name: data
+        description: Chave estrangeira conceitual para dim_data.data
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_data')
+              field: data
+
+      - name: valor
+        description: Valor numérico do indicador naquela data
+        tests:
+          - not_null

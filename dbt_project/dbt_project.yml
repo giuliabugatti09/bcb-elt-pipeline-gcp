@@ -33,3 +33,5 @@ models:
   bcb_transform:
     staging:
       +materialized: view
+    marts:
+      +materialized: table
