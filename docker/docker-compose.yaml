@@ -17,6 +17,9 @@ x-airflow-common: &airflow-common
     # Sem isso, o executável 'airflow' (instalado em ~/.local/bin) não
     # é encontrado quando rodamos via 'entrypoint: /bin/bash' diretamente.
     PATH: /home/airflow/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    SUPABASE_PROJECT_URL: ${SUPABASE_PROJECT_URL}
+    SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+    SUPABASE_STORAGE_BUCKET: ${SUPABASE_STORAGE_BUCKET}
   volumes:
     - ../dags:/opt/airflow/dags
     - ../src:/opt/airflow/src
