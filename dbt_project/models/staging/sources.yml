@@ -1,0 +1,26 @@
+version: 2
+
+sources:
+  - name: raw
+    description: >
+      Camada raw: dados brutos carregados pelo pipeline Python/Airflow
+      (extração da API do BCB), sem nenhuma transformação de negócio
+      aplicada. Gerenciada fora do dbt, por src/loaders/postgres_loader.py.
+    schema: raw
+    tables:
+      - name: bcb_series
+        description: >
+          Valores diários/mensais das séries do BCB (dólar PTAX, Selic,
+          IPCA), um registro por série+data. Populada via UPSERT
+          idempotente pelo pipeline de carga.
+        columns:
+          - name: series_name
+            description: "Nome da série (ex: 'dolar_ptax_venda', 'selic_diaria', 'ipca_mensal')"
+          - name: data_referencia
+            description: Data a que o valor se refere
+          - name: valor
+            description: Valor numérico da série naquela data
+          - name: extraction_timestamp
+            description: Timestamp de quando o dado foi extraído da API do BCB
+          - name: source_file
+            description: Caminho do arquivo no Supabase Storage de onde este registro veio
