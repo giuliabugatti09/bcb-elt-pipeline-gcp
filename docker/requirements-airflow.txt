@@ -1,0 +1,7 @@
+# Dependências específicas do container Airflow.
+# Mantidas separadas do requirements.txt (raiz do projeto) porque este
+# último é usado também no venv local para rodar os scripts de extração
+# isoladamente — não faz sentido instalar todo o ecossistema de providers
+# do Airflow numa venv que só roda um script Python simples.
+
+psycopg2-binary==2.9.9

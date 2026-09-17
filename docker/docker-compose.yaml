@@ -9,8 +9,14 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
     AIRFLOW__WEBSERVER__EXPOSE_CONFIG: 'true'
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+    AIRFLOW__CORE__TEST_CONNECTION: 'Enabled'
     # Variaveis de ambiente do NOSSO projeto (paths, futuramente credenciais GCP)
     PYTHONPATH: /opt/airflow
+    # Necessário porque o airflow-init sobrescreve o entrypoint original
+    # da imagem (que normalmente configura o PATH em tempo de execução).
+    # Sem isso, o executável 'airflow' (instalado em ~/.local/bin) não
+    # é encontrado quando rodamos via 'entrypoint: /bin/bash' diretamente.
+    PATH: /home/airflow/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
   volumes:
     - ../dags:/opt/airflow/dags
     - ../src:/opt/airflow/src
@@ -34,7 +40,9 @@ services:
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "airflow"]
       interval: 5s
-      retries: 5
+      timeout: 5s
+      retries: 10
+      start_period: 15s
     restart: always
 
   airflow-init:
@@ -44,8 +52,8 @@ services:
     command:
       - -c
       - |
-        airflow db migrate
-        airflow users create \
+        /home/airflow/.local/bin/airflow db migrate
+        /home/airflow/.local/bin/airflow users create \
           --username airflow \
           --password airflow \
           --firstname Admin \
