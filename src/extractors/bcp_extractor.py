@@ -285,24 +285,29 @@ def save_raw_json(
 def run_extraction(
     series_name: str,
     ultimos_n: int = 20,
-) -> Path:
+) -> str:
     """
     Função de entrada para carga INCREMENTAL: extrai e salva os últimos
     N valores de uma série. É essa função que o Airflow vai chamar
     diariamente na DAG (Dia 5/6).
+
+    Retorna str (não Path) propositalmente: o Airflow tenta serializar
+    o valor de retorno de PythonOperators como XCom, e objetos Path
+    não são serializáveis em JSON por padrão — isso quebraria a task
+    mesmo após a extração ter funcionado com sucesso.
     """
     logger.info(f"[incremental] Iniciando extração da série: {series_name}")
     dados = extract_series(series_name, ultimos_n=ultimos_n)
     file_path = save_raw_json(series_name, dados, mode="incremental")
     logger.info(f"[incremental] Extração concluída: {series_name}")
-    return file_path
+    return str(file_path)
 
 
 def run_backfill(
     series_name: str,
     anos: int = 10,
     data_final: Optional[date] = None,
-) -> Path:
+) -> str:
     """
     Função de entrada para carga BACKFILL: extrai o histórico completo
     de uma série, fatiando automaticamente em blocos que respeitam o
@@ -318,7 +323,9 @@ def run_backfill(
         data_final: data final do backfill. Se None, usa hoje.
 
     Returns:
-        Path do arquivo consolidado salvo em data/raw/{series}/backfill/
+        Caminho (str) do arquivo consolidado salvo em
+        data/raw/{series}/backfill/. Retorna str, não Path, pelo mesmo
+        motivo explicado em run_extraction (compatibilidade com XCom).
     """
     if data_final is None:
         data_final = datetime.now().date()
@@ -351,10 +358,7 @@ def run_backfill(
         f"[backfill] Concluído: {series_name} — "
         f"{len(dados_completos)} registros no total."
     )
-    return file_path
-
-
-if __name__ == "__main__":
+    return str(file_path)
     # Execução manual para teste local.
     #
     # Modo 1 — Carga incremental (o que a DAG vai rodar diariamente):

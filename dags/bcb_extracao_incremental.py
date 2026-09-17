@@ -17,6 +17,8 @@ from airflow.models import Variable
 from airflow.operators.python import PythonOperator
 
 from src.extractors.bcp_extractor import SERIES_BCB, run_extraction
+from src.loaders.supabase_storage_loader import upload_latest_incremental
+from src.loaders.postgres_loader import load_series_to_postgres
 
 logger = logging.getLogger(__name__)
 
@@ -98,8 +100,42 @@ with DAG(
     # produz o mesmo estado final — é isso que nos permite confiar
     # nos retries sem medo de duplicar ou corromper dados.
     for series_name in SERIES_BCB:
-        PythonOperator(
+        task_extrair = PythonOperator(
             task_id=f"extrair_{series_name}",
             python_callable=run_extraction,
             op_kwargs={"series_name": series_name, "ultimos_n": ULTIMOS_N},
+            # Não usamos o valor de retorno via XCom (a task de upload
+            # recalcula o caminho do arquivo de forma independente),
+            # então desabilitamos o push para evitar overhead/erros
+            # desnecessários de serialização.
+            do_xcom_push=False,
         )
+
+        # "{{ ds }}" é uma variável de template (Jinja) do Airflow que
+        # resolve para a data lógica da execução no formato YYYY-MM-DD.
+        # op_kwargs é um campo "templated" do PythonOperator, então o
+        # Airflow substitui esse valor automaticamente em runtime —
+        # não é uma string literal "{{ ds }}" sendo passada de verdade.
+        task_upload = PythonOperator(
+            task_id=f"upload_{series_name}",
+            python_callable=upload_latest_incremental,
+            op_kwargs={
+                "series_name": series_name,
+                "execution_date_iso": "{{ ds }}",
+            },
+            do_xcom_push=False,
+        )
+
+        task_carregar_postgres = PythonOperator(
+            task_id=f"carregar_postgres_{series_name}",
+            python_callable=load_series_to_postgres,
+            op_kwargs={
+                "series_name": series_name,
+                "execution_date_iso": "{{ ds }}",
+            },
+            do_xcom_push=False,
+        )
+
+        # Encadeamento completo: extrai -> sobe pro Storage -> carrega
+        # no Postgres. Cada etapa só roda se a anterior teve sucesso.
+        task_extrair >> task_upload >> task_carregar_postgres
