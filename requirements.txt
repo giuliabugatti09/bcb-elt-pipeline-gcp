@@ -1,5 +1,15 @@
-requests==2.32.3
-python-dotenv==1.0.1
-psycopg2-binary==2.9.11
-dbt-postgres>=1.12
+# Dependências específicas do container Airflow.
+# Mantidas separadas do requirements.txt (raiz do projeto) porque este
+# último é usado também no venv local para rodar os scripts de extração
+# isoladamente — não faz sentido instalar todo o ecossistema de providers
+# do Airflow numa venv que só roda um script Python simples.
 
+apache-airflow-providers-postgres
+# Sem versão fixa aqui: o Python do container é 3.11 (não 3.14 como no
+# host), então não sofremos o mesmo problema de compatibilidade que
+# exigiu fixar 2.9.11 no requirements.txt local. Deixamos o pip seguir
+# o constraints file oficial do Airflow (que já fixa uma versão
+# compatível e testada, atualmente 2.9.9).
+psycopg2-binary
+dbt-postgres==1.8.2
+dbt-core==1.8.8

@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.models import Variable
 from airflow.operators.python import PythonOperator
+from airflow.operators.bash import BashOperator
 
 from src.extractors.bcp_extractor import SERIES_BCB, run_extraction
 from src.loaders.supabase_storage_loader import upload_latest_incremental
@@ -99,6 +100,8 @@ with DAG(
     # dia corrente em vez de anexar dados. Rodar 1x ou 5x no mesmo dia
     # produz o mesmo estado final — é isso que nos permite confiar
     # nos retries sem medo de duplicar ou corromper dados.
+    tasks_carga = []
+
     for series_name in SERIES_BCB:
         task_extrair = PythonOperator(
             task_id=f"extrair_{series_name}",
@@ -139,3 +142,21 @@ with DAG(
         # Encadeamento completo: extrai -> sobe pro Storage -> carrega
         # no Postgres. Cada etapa só roda se a anterior teve sucesso.
         task_extrair >> task_upload >> task_carregar_postgres
+        tasks_carga.append(task_carregar_postgres)
+
+    # As transformações do dbt só devem rodar depois que TODAS as
+    # séries tiverem sido carregadas na raw — rodar o dbt com dados
+    # parciais geraria models incompletos/inconsistentes. Por isso
+    # essas duas tasks dependem da lista inteira de cargas, não de
+    # uma série específica.
+    task_dbt_run = BashOperator(
+        task_id="dbt_run",
+        bash_command="cd /opt/airflow/dbt_project && dbt run",
+    )
+
+    task_dbt_test = BashOperator(
+        task_id="dbt_test",
+        bash_command="cd /opt/airflow/dbt_project && dbt test",
+    )
+
+    tasks_carga >> task_dbt_run >> task_dbt_test

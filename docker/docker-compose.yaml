@@ -17,13 +17,32 @@ x-airflow-common: &airflow-common
     # Sem isso, o executável 'airflow' (instalado em ~/.local/bin) não
     # é encontrado quando rodamos via 'entrypoint: /bin/bash' diretamente.
     PATH: /home/airflow/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    # Credenciais do Supabase, interpoladas a partir do .env do host —
+    # necessárias para o novo módulo de upload (supabase_storage_loader).
     SUPABASE_PROJECT_URL: ${SUPABASE_PROJECT_URL}
     SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
     SUPABASE_STORAGE_BUCKET: ${SUPABASE_STORAGE_BUCKET}
+    # Usada pelo postgres_loader.py (Dia 11) para conectar via psycopg2.
+    # Ficou faltando propagar até agora porque só era testada localmente,
+    # onde python-dotenv lê o .env diretamente — dentro do container,
+    # precisa estar declarada aqui.
+    SUPABASE_DB_CONNECTION_STRING: ${SUPABASE_DB_CONNECTION_STRING}
+    # Credenciais individuais do Postgres, usadas pelo profiles.yml do
+    # dbt (que roda dentro deste container a partir de hoje, Dia 16).
+    SUPABASE_DB_HOST: ${SUPABASE_DB_HOST}
+    SUPABASE_DB_PORT: ${SUPABASE_DB_PORT}
+    SUPABASE_DB_USER: ${SUPABASE_DB_USER}
+    SUPABASE_DB_PASSWORD: ${SUPABASE_DB_PASSWORD}
+    SUPABASE_DB_NAME: ${SUPABASE_DB_NAME}
+    # Aponta o dbt para o profiles.yml montado via volume, em vez do
+    # padrão ~/.dbt/profiles.yml (que não existe dentro do container).
+    DBT_PROFILES_DIR: /opt/airflow/dbt_profiles
   volumes:
     - ../dags:/opt/airflow/dags
     - ../src:/opt/airflow/src
     - ../data:/opt/airflow/data
+    - ../dbt_project:/opt/airflow/dbt_project
+    - ../docker/dbt_profiles:/opt/airflow/dbt_profiles
     - airflow_logs:/opt/airflow/logs
     - airflow_plugins:/opt/airflow/plugins
   depends_on: &airflow-common-depends-on
