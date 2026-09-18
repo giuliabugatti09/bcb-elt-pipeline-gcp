@@ -85,7 +85,7 @@ erDiagram
 ## Project structure
 
 ```
-bcb-elt-pipeline-gcp/
+bcb-elt-pipeline
 ├── dags/                       # Airflow DAGs
 ├── src/
 │   ├── extractors/              # BCB API extraction (retry, backfill, incremental)
